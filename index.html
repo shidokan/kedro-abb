@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Demand Forecasting — Validating a pipeline that never failed</title>
+<meta name="description" content="A fourteen-check data validation layer for a Kedro demand-forecasting pipeline on AWS Fargate, and the three latent defects writing it uncovered — a case study by John Carlo Cueva">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Source+Serif+4:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --bg: #0E1B2C;
+  --bg-soft: #142539;
+  --bg-section: #182B43;
+  --surface: #1B304D;
+  --surface-elevated: #213A5C;
+
+  --ink: #F5F1E8;
+  --ink-muted: #B4BFCF;
+  --ink-faded: #7889A0;
+  --ink-dim: #4C5D75;
+
+  --rule: rgba(245, 241, 232, 0.1);
+  --rule-soft: rgba(245, 241, 232, 0.05);
+  --rule-strong: rgba(245, 241, 232, 0.18);
+
+  --accent-900: #4A2010;
+  --accent-700: #B85A1E;
+  --accent-500: #E87B33;
+  --accent-300: #F4A66B;
+  --accent-100: #F8D2B0;
+
+  --teal-700: #1E6F6F;
+  --teal-500: #2BA39C;
+  --teal-300: #6BC7C0;
+  --teal-100: #B8E0DC;
+
+  --sage-700: #5C7048;
+  --sage-500: #87A56B;
+  --sage-300: #B0C497;
+
+  --rose-700: #8E3B3B;
+  --rose-500: #C25B5B;
+  --rose-300: #E79595;
+
+  --font-display: 'DM Sans', -apple-system, system-ui, sans-serif;
+  --font-body: 'DM Sans', -apple-system, system-ui, sans-serif;
+  --font-mono: 'DM Mono', 'SF Mono', Menlo, monospace;
+  --font-serif: 'Source Serif 4', Georgia, serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--bg);
+  line-height: 1.55;
+  min-height: 100vh;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.012) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.012) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+.wrap { max-width: 1240px; margin: 0 auto; padding: 0 2rem; }
+
+/* === Header === */
+.site-head {
+  border-bottom: 1px solid var(--rule);
+  padding: 1.125rem 0;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(12px);
+  background: rgba(14, 27, 44, 0.88);
+}
+.site-head-row { display: flex; align-items: center; justify-content: space-between; gap: 2rem; }
+.brand {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1rem;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.brand::before {
+  content: "";
+  display: inline-block;
+  width: 0.5rem;
+  height: 1.125rem;
+  background: var(--accent-500);
+  border-radius: 1px;
+}
+.brand span {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--ink-faded);
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  margin-left: 0.5rem;
+  text-transform: uppercase;
+}
+.site-nav { display: flex; gap: 1.75rem; font-size: 0.875rem; align-items: center; }
+.site-nav a { color: var(--ink-muted); text-decoration: none; transition: color 0.15s; font-weight: 500; }
+.site-nav a:hover { color: var(--accent-300); }
+
+/* === Hero === */
+.hero { padding: 6rem 0 3rem; position: relative; }
+.kicker {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent-300);
+  margin-bottom: 1.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.375rem 0.875rem;
+  background: rgba(232, 123, 51, 0.1);
+  border-radius: 4px;
+  border: 1px solid rgba(232, 123, 51, 0.2);
+}
+.kicker .dot { width: 0.375rem; height: 0.375rem; background: var(--accent-500); border-radius: 50%; display: inline-block; }
+.hero h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(2.5rem, 5.5vw, 4.5rem);
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+  color: var(--ink);
+  max-width: 22ch;
+  margin-bottom: 1.75rem;
+}
+.hero h1 .serif { font-family: var(--font-serif); font-style: italic; font-weight: 500; color: var(--accent-300); }
+.hero-lede {
+  font-weight: 400;
+  font-size: 1.1875rem;
+  line-height: 1.6;
+  color: var(--ink-muted);
+  max-width: 64ch;
+  margin-bottom: 2.5rem;
+}
+.byline {
+  display: flex; align-items: center; gap: 1rem;
+  padding-top: 1.25rem; border-top: 1px solid var(--rule);
+  max-width: 44rem; font-size: 0.875rem; color: var(--ink-muted); flex-wrap: wrap;
+}
+.byline strong { color: var(--ink); font-weight: 600; }
+.byline .sep { color: var(--ink-dim); }
+.byline .mono { font-family: var(--font-mono); font-size: 0.8125rem; color: var(--ink-faded); }
+.byline .tag {
+  font-family: var(--font-mono); font-size: 0.7rem;
+  background: rgba(43, 163, 156, 0.12); color: var(--teal-300);
+  padding: 0.2rem 0.55rem; border-radius: 3px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  border: 1px solid rgba(43, 163, 156, 0.25);
+}
+
+/* === Stat band === */
+.stat-band {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem;
+  margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--rule);
+}
+@media (max-width: 900px) { .stat-band { grid-template-columns: repeat(2, 1fr); } }
+.stat { display: flex; flex-direction: column; gap: 0.375rem; }
+.stat-number {
+  font-family: var(--font-display); font-weight: 600; font-size: 2rem;
+  letter-spacing: -0.025em; color: var(--accent-300); line-height: 1;
+}
+.stat-label {
+  font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--ink-faded); font-weight: 500;
+}
+
+/* === Section === */
+section { padding: 3.5rem 0; }
+.section-label {
+  display: flex; align-items: baseline; gap: 1rem; margin-bottom: 2rem;
+  padding-bottom: 1rem; border-bottom: 1px solid var(--rule); flex-wrap: wrap;
+}
+.section-num {
+  font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em;
+  color: var(--accent-500); font-weight: 500; background: rgba(232, 123, 51, 0.1);
+  padding: 0.2rem 0.55rem; border-radius: 3px; border: 1px solid rgba(232, 123, 51, 0.2);
+}
+.section-title {
+  font-family: var(--font-display); font-weight: 600; font-size: 1.875rem;
+  letter-spacing: -0.025em; color: var(--ink);
+}
+.section-sub {
+  font-family: var(--font-mono); font-weight: 400; color: var(--ink-faded);
+  margin-left: auto; font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.section-intro { font-size: 1rem; line-height: 1.65; color: var(--ink-muted); max-width: 72ch; margin-bottom: 1.75rem; }
+.section-intro code { font-family: var(--font-mono); font-size: 0.85em; background: var(--bg-soft); padding: 0.1rem 0.375rem; border-radius: 3px; color: var(--accent-300); border: 1px solid var(--rule); }
+
+/* === Diagram frame === */
+.diagram-frame { background: var(--surface); border: 1px solid var(--rule-strong); padding: 2rem; border-radius: 8px; }
+.diagram-label {
+  font-family: var(--font-mono); font-size: 0.6875rem; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--ink-faded); margin-bottom: 1.25rem;
+  display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+}
+.diagram-label .label-title {
+  font-family: var(--font-display); font-weight: 500; font-size: 1rem;
+  letter-spacing: -0.015em; color: var(--ink); text-transform: none;
+}
+.hint {
+  background: rgba(232, 123, 51, 0.08); border: 1px solid rgba(232, 123, 51, 0.2);
+  padding: 0.875rem 1.125rem; border-radius: 6px; margin-bottom: 1.5rem;
+  font-size: 0.875rem; color: var(--ink-muted);
+  display: flex; align-items: center; gap: 0.875rem; flex-wrap: wrap;
+}
+.hint strong {
+  font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--accent-300); font-weight: 500;
+  padding: 0.2rem 0.55rem; background: rgba(232, 123, 51, 0.15);
+  border-radius: 3px; border: 1px solid rgba(232, 123, 51, 0.25); flex-shrink: 0;
+}
+.svg-wrap { width: 100%; display: flex; justify-content: center; overflow-x: auto; }
+.svg-wrap svg { max-width: 100%; height: auto; min-width: 760px; }
+
+.svg-th { font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: -0.01em; }
+.svg-ts { font-family: var(--font-body); font-size: 10.5px; font-weight: 400; }
+.svg-tag { font-family: var(--font-mono); font-size: 8.5px; font-weight: 500; letter-spacing: 0.08em; }
+.svg-arr { stroke: var(--ink-faded); stroke-width: 1.25; fill: none; }
+.svg-container { fill: none; stroke: var(--ink-dim); stroke-width: 1; stroke-dasharray: 4 4; }
+.svg-container-solid { fill: rgba(43,163,156,0.05); stroke: var(--teal-700); stroke-width: 1; }
+.svg-region-label { font-family: var(--font-mono); font-size: 10px; fill: var(--ink-faded); letter-spacing: 0.08em; font-weight: 500; }
+.svg-edge-label { font-family: var(--font-mono); font-size: 9px; fill: var(--ink-faded); letter-spacing: 0.04em; }
+
+.node-group { cursor: pointer; transition: filter 0.15s ease; }
+.node-group:hover { filter: brightness(1.14); }
+.node-group:hover rect.nbox { stroke-width: 2; }
+.node-static { cursor: default; }
+
+/* === Legend === */
+.legend { display: flex; gap: 0.625rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+.lg {
+  font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: 0.07em; padding: 0.25rem 0.625rem; border-radius: 3px; font-weight: 500;
+}
+.lg.new { background: rgba(43,163,156,0.12); color: var(--teal-300); border: 1px solid rgba(43,163,156,0.3); }
+.lg.mod { background: rgba(232,123,51,0.12); color: var(--accent-300); border: 1px solid rgba(232,123,51,0.3); }
+.lg.unc { background: var(--bg-section); color: var(--ink-faded); border: 1px solid var(--rule); }
+
+/* === Pipeline === */
+.pipeline { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 8px; overflow: hidden; }
+.pipeline-step {
+  display: grid; grid-template-columns: auto 1fr; gap: 1.75rem;
+  padding: 1.5rem 1.75rem; border-bottom: 1px solid var(--rule);
+  align-items: start; transition: background 0.15s;
+}
+.pipeline-step:last-child { border-bottom: none; }
+.pipeline-step:hover { background: var(--surface-elevated); }
+.pipeline-num {
+  font-family: var(--font-mono); font-weight: 500; font-size: 0.875rem;
+  color: var(--accent-300); background: rgba(232, 123, 51, 0.1);
+  padding: 0.625rem 0.875rem; border-radius: 6px;
+  border: 1px solid rgba(232, 123, 51, 0.25); height: fit-content;
+  min-width: 3.25rem; text-align: center;
+}
+.pipeline-step.is-new .pipeline-num { color: var(--teal-300); background: rgba(43,163,156,0.1); border-color: rgba(43,163,156,0.3); }
+.pipeline-body { display: flex; flex-direction: column; gap: 0.5rem; }
+.pipeline-title { font-family: var(--font-display); font-weight: 600; font-size: 1.125rem; letter-spacing: -0.015em; color: var(--ink); }
+.pipeline-tech { font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-300); font-weight: 500; }
+.pipeline-step.is-new .pipeline-tech { color: var(--teal-300); }
+.pipeline-desc { font-size: 0.9375rem; color: var(--ink-muted); line-height: 1.6; max-width: 72ch; margin-top: 0.125rem; }
+.pipeline-desc code, .pipeline-note code { font-family: var(--font-mono); font-size: 0.85em; background: var(--bg-soft); padding: 0.1rem 0.375rem; border-radius: 3px; color: var(--accent-300); border: 1px solid var(--rule); }
+.pipeline-desc strong { color: var(--ink); font-weight: 600; }
+.pipeline-note { font-size: 0.875rem; color: var(--ink-faded); line-height: 1.6; max-width: 72ch; }
+
+/* === Checks grid === */
+.checks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 0.75rem; }
+.check-card {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 1.125rem 1.25rem 1.25rem; display: flex; gap: 0.875rem;
+  align-items: flex-start; transition: all 0.16s;
+}
+.check-card:hover { background: var(--surface-elevated); border-color: var(--rule-strong); transform: translateY(-1px); }
+.check-card.out { border-left: 3px solid var(--teal-700); }
+.ck-num { font-family: var(--font-mono); font-size: 0.8125rem; color: var(--accent-300); font-weight: 500; flex: none; padding-top: 0.0625rem; }
+.check-card.out .ck-num { color: var(--teal-300); }
+.ck-body { flex: 1; min-width: 0; }
+.ck-title { font-family: var(--font-display); font-weight: 600; font-size: 0.9375rem; color: var(--ink); letter-spacing: -0.012em; line-height: 1.3; }
+.ck-desc { font-size: 0.8125rem; color: var(--ink-muted); line-height: 1.55; margin-top: 0.3125rem; }
+.ck-spec { font-family: var(--font-mono); font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-faded); margin-top: 0.5rem; }
+.ck-spec b { color: var(--accent-300); font-weight: 500; }
+
+/* === Defects === */
+.defects-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 1rem; }
+.defect {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
+  overflow: hidden; display: flex; flex-direction: column; transition: all 0.18s;
+}
+.defect:hover { border-color: var(--rule-strong); background: var(--surface-elevated); }
+.defect-head { padding: 1.25rem 1.5rem 1.125rem; border-bottom: 1px solid var(--rule); background: var(--bg-section); }
+.defect-kind {
+  font-family: var(--font-mono); font-size: 0.6875rem; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--accent-300); background: rgba(232,123,51,0.12);
+  padding: 0.2rem 0.55rem; border-radius: 3px; border: 1px solid rgba(232,123,51,0.25);
+  display: inline-block; font-weight: 500;
+}
+.defect-title { font-family: var(--font-display); font-weight: 600; font-size: 1.125rem; letter-spacing: -0.02em; color: var(--ink); line-height: 1.3; margin: 0.75rem 0 0.4375rem; }
+.defect-path { font-family: var(--font-mono); font-size: 0.7rem; color: var(--ink-faded); word-break: break-all; }
+.defect-body { padding: 1.375rem 1.5rem 1.5rem; flex: 1; display: flex; flex-direction: column; }
+.ba { font-family: var(--font-mono); font-size: 0.7rem; line-height: 1.6; border-radius: 6px; overflow: hidden; margin-bottom: 1rem; border: 1px solid var(--rule); }
+.ba div { padding: 0.5rem 0.75rem; white-space: pre-wrap; word-break: break-word; }
+.ba .was { background: rgba(194,91,91,0.1); color: var(--rose-300); border-bottom: 1px solid var(--rule); }
+.ba .now { background: rgba(43,163,156,0.1); color: var(--teal-300); }
+.defect-body p { font-size: 0.875rem; line-height: 1.65; color: var(--ink-muted); margin-bottom: 0.75rem; }
+.defect-body p:last-of-type { margin-bottom: 0; }
+.defect-body strong { color: var(--ink); font-weight: 600; }
+.defect-impact {
+  margin-top: auto; padding-top: 0.875rem; border-top: 1px solid var(--rule);
+  font-size: 0.8125rem; line-height: 1.6; color: var(--ink-muted);
+}
+.defect-impact b { font-family: var(--font-mono); font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--teal-300); display: block; margin-bottom: 0.3125rem; font-weight: 500; }
+
+/* === Decisions === */
+.decisions-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+@media (max-width: 860px) { .decisions-grid { grid-template-columns: 1fr; } }
+.decision-card { background: var(--surface); border: 1px solid var(--rule); padding: 1.75rem; border-radius: 8px; transition: all 0.18s; }
+.decision-card:hover { background: var(--surface-elevated); border-color: var(--rule-strong); }
+.decision-q { font-family: var(--font-display); font-weight: 600; font-size: 1.0625rem; letter-spacing: -0.015em; color: var(--accent-300); margin-bottom: 0.75rem; line-height: 1.3; }
+.decision-a { font-size: 0.9375rem; line-height: 1.6; color: var(--ink-muted); }
+.decision-a strong { color: var(--ink); font-weight: 600; }
+.decision-a code { font-family: var(--font-mono); font-size: 0.85em; background: var(--bg-soft); padding: 0.1rem 0.375rem; border-radius: 3px; color: var(--accent-300); border: 1px solid var(--rule); }
+
+/* === Stack / reference table === */
+.stack-table { width: 100%; background: var(--surface); border: 1px solid var(--rule-strong); border-collapse: collapse; border-radius: 8px; overflow: hidden; }
+.stack-table tr { border-bottom: 1px solid var(--rule); }
+.stack-table tr:last-child { border-bottom: none; }
+.stack-table tr:hover { background: var(--surface-elevated); }
+.stack-table td { padding: 0.875rem 1.5rem; vertical-align: top; }
+.stack-table td:first-child {
+  font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--ink-faded); width: 30%; font-weight: 500;
+}
+.stack-table td:nth-child(2) { font-size: 0.9375rem; color: var(--ink-muted); }
+.stack-table code { font-family: var(--font-mono); font-size: 0.85em; background: var(--bg-soft); padding: 0.15rem 0.4rem; border-radius: 3px; color: var(--accent-300); border: 1px solid var(--rule); }
+.stack-table strong { color: var(--ink); font-weight: 600; }
+.tbl-scroll { overflow-x: auto; }
+
+/* === Callouts === */
+.callout {
+  background: rgba(43,163,156,0.07); border: 1px solid rgba(43,163,156,0.22);
+  border-left: 3px solid var(--teal-500); padding: 1.125rem 1.375rem;
+  border-radius: 6px; margin-top: 1.5rem; font-size: 0.9375rem;
+  line-height: 1.65; color: var(--ink-muted);
+}
+.callout.warn { background: rgba(232,123,51,0.07); border-color: rgba(232,123,51,0.22); border-left-color: var(--accent-500); }
+.callout strong { color: var(--ink); font-weight: 600; }
+.callout code { font-family: var(--font-mono); font-size: 0.85em; background: var(--bg-soft); padding: 0.1rem 0.375rem; border-radius: 3px; color: var(--accent-300); border: 1px solid var(--rule); }
+
+/* === About === */
+.about-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 2.5rem; }
+@media (max-width: 860px) { .about-grid { grid-template-columns: 1fr; gap: 1.75rem; } }
+.about-body p { font-size: 1rem; line-height: 1.7; color: var(--ink-muted); margin-bottom: 1rem; }
+.about-body p:last-child { margin-bottom: 0; }
+.about-body strong { color: var(--ink); font-weight: 600; }
+.about-list { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 1.5rem 1.75rem; }
+.about-list h4 { font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent-300); font-weight: 500; margin-bottom: 1rem; padding-bottom: 0.625rem; border-bottom: 1px solid var(--rule); }
+.about-list ul { list-style: none; display: flex; flex-direction: column; gap: 0.625rem; }
+.about-list li { font-size: 0.875rem; line-height: 1.55; color: var(--ink-muted); padding-left: 1.25rem; position: relative; }
+.about-list li::before { content: "▸"; position: absolute; left: 0; color: var(--accent-500); font-size: 0.75em; top: 0.3em; }
+.about-list + .about-list { margin-top: 1rem; }
+
+/* === Modal === */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.2s; backdrop-filter: blur(6px); }
+.modal-backdrop.open { opacity: 1; pointer-events: all; }
+.modal-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(620px, 100%);
+  background: var(--bg-soft); z-index: 101; transform: translateX(100%);
+  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0.32, 0.96);
+  overflow-y: auto; border-left: 1px solid var(--rule-strong);
+  display: flex; flex-direction: column; box-shadow: -16px 0 40px rgba(0,0,0,0.4);
+}
+.modal-panel.open { transform: translateX(0); }
+.modal-header { padding: 2rem 2.5rem 1.5rem; border-bottom: 1px solid var(--rule); background: var(--bg-section); position: sticky; top: 0; z-index: 2; }
+.modal-close {
+  position: absolute; top: 1.5rem; right: 1.5rem; width: 2rem; height: 2rem;
+  background: transparent; border: 1px solid var(--rule); color: var(--ink-muted);
+  cursor: pointer; border-radius: 6px; display: flex; align-items: center;
+  justify-content: center; font-size: 1rem; transition: all 0.15s; font-family: var(--font-body);
+}
+.modal-close:hover { background: var(--accent-500); color: var(--bg); border-color: var(--accent-500); }
+.modal-category {
+  font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--accent-300); margin-bottom: 0.75rem;
+  background: rgba(232,123,51,0.12); padding: 0.25rem 0.625rem; border-radius: 3px;
+  display: inline-block; font-weight: 500; border: 1px solid rgba(232,123,51,0.25);
+}
+.modal-category.is-new { color: var(--teal-300); background: rgba(43,163,156,0.12); border-color: rgba(43,163,156,0.25); }
+.modal-title { font-family: var(--font-display); font-weight: 600; font-size: 1.75rem; letter-spacing: -0.025em; color: var(--ink); line-height: 1.15; padding-right: 3rem; }
+.modal-title .alt { display: block; font-family: var(--font-mono); font-size: 0.875rem; color: var(--ink-faded); font-weight: 400; letter-spacing: 0; margin-top: 0.375rem; word-break: break-all; }
+.modal-summary { font-size: 1rem; line-height: 1.6; color: var(--ink-muted); margin-top: 1rem; }
+.modal-body { padding: 2rem 2.5rem 3rem; }
+.modal-block { margin-bottom: 2rem; }
+.modal-block:last-child { margin-bottom: 0; }
+.modal-block-label { font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent-300); margin-bottom: 0.875rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--rule); font-weight: 500; }
+.modal-block p { font-size: 0.9375rem; line-height: 1.65; color: var(--ink-muted); margin-bottom: 0.75rem; }
+.modal-block p:last-child { margin-bottom: 0; }
+.modal-block ul { list-style: none; display: flex; flex-direction: column; gap: 0.625rem; }
+.modal-block li { font-size: 0.875rem; line-height: 1.55; color: var(--ink-muted); padding-left: 1.5rem; position: relative; }
+.modal-block li::before { content: "▸"; position: absolute; left: 0; top: 0; color: var(--accent-500); font-size: 0.8em; line-height: 1.55; }
+.modal-block code { font-family: var(--font-mono); font-size: 0.8125rem; background: var(--bg-soft); padding: 0.1rem 0.375rem; border-radius: 3px; color: var(--accent-300); border: 1px solid var(--rule); }
+.modal-block strong { color: var(--ink); font-weight: 600; }
+
+/* === Footer === */
+footer { border-top: 1px solid var(--rule); padding: 3rem 0; margin-top: 4rem; background: var(--bg-soft); }
+.foot-grid { display: flex; justify-content: space-between; align-items: center; gap: 2rem; flex-wrap: wrap; }
+.foot-brand { font-family: var(--font-display); font-weight: 600; font-size: 0.9375rem; color: var(--ink); letter-spacing: -0.015em; }
+.foot-grid p { font-size: 0.875rem; color: var(--ink-muted); }
+.foot-grid .mono { font-family: var(--font-mono); font-size: 0.75rem; color: var(--ink-faded); }
+
+@keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+.hero > * { animation: fadeUp 0.6s ease-out both; }
+.hero > *:nth-child(1) { animation-delay: 0.05s; }
+.hero > *:nth-child(2) { animation-delay: 0.15s; }
+.hero > *:nth-child(3) { animation-delay: 0.25s; }
+.hero > *:nth-child(4) { animation-delay: 0.35s; }
+.hero > *:nth-child(5) { animation-delay: 0.45s; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--ink-dim); border: 3px solid var(--bg); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-faded); }
+
+@media (max-width: 640px) {
+  .wrap { padding: 0 1.25rem; }
+  .site-nav { display: none; }
+  section { padding: 2rem 0; }
+  .hero { padding: 3rem 0 2.5rem; }
+  .modal-panel { width: 100%; }
+  .modal-header, .modal-body { padding-left: 1.5rem; padding-right: 1.5rem; }
+  .pipeline-step { grid-template-columns: 1fr; gap: 0.5rem; padding: 1.25rem; }
+  .diagram-frame { padding: 1rem; }
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+/* =====================================================================
+   FILES — clickable nodes in the repository diagram
+   ===================================================================== */
+const FILES = {
+  checks: {
+    name: "checks.py",
+    altName: "src/f1/validation/checks.py · 780 lines",
+    category: "New · the validation logic",
+    kind: "new",
+    summary: "The fourteen checks, one pure function each. No I/O inside any of them — a check receives a dataframe and a threshold and returns a result object. That constraint is what makes them unit-testable without a pipeline, a cluster or a database.",
+    role: "Each function is named for what it asserts rather than what it rejects, and every docstring cites two things: the specification item it implements, and the real incident that justified writing it. A check that cannot point at an incident or a specification line does not belong in the file. Eleven checks run against inputs in the configuration pass; three run against the published output after the forecast exists.",
+    talking: [
+      "One pure function per check — no I/O, so a unit test needs no fixtures beyond a small frame",
+      "Thresholds arrive as arguments, never as literals in the body",
+      "Every failure message names the file, the problem and the fix — 'validation failed' is no better than no check",
+      "Docstrings carry the provenance: specification reference plus the incident that motivated it",
+      "Grouping mirrors the specification's own tiers so an auditor can walk one against the other"
+    ]
+  },
+  runner: {
+    name: "runner.py",
+    altName: "src/f1/validation/runner.py",
+    category: "New · severity and reporting",
+    kind: "new",
+    summary: "Decides what a failed check actually does. Holds the result object, resolves each check's configured severity, applies the strict flag, writes the result block to the log, and raises only when something failed at error severity.",
+    role: "A check returns a result; it does not decide the consequence. That separation is what lets the same fourteen checks run permissively in Development and strictly in QA and Production without touching the logic. A check with no configured severity defaults to warning — a new check must not be able to fail a run because someone forgot to configure it. The strict flag promotes every warning to an error in one place.",
+    talking: [
+      "Severity is data, not control flow — it lives in configuration and is resolved here",
+      "Unconfigured check defaults to warning, so an omission is never a production outage",
+      "A single strict flag per environment: permissive in Dev, strict in QA and Prod",
+      "Logs every passing check too — silence is indistinguishable from 'never ran'",
+      "Raises one exception listing every blocking failure rather than dying on the first"
+    ]
+  },
+  vnodes: {
+    name: "nodes.py",
+    altName: "src/f1/validation/nodes.py",
+    category: "New · the two pipeline steps",
+    kind: "new",
+    summary: "The only file in the package that knows about Kedro. Two nodes — one running the input checks during the configuration pass, one running the output checks once the forecast exists.",
+    role: "Everything framework-specific is isolated here: dataset names, catalog wiring, the per-file date-format declarations. The checks themselves know nothing about the pipeline, which means the validation layer could be lifted into a different orchestrator by rewriting this one file. It also declares an explicit date format per source file, because two of the inputs use month-first ordering and the rest use day-first, and inferring that per row is how a date silently becomes a blank.",
+    talking: [
+      "Framework coupling confined to one file — the checks stay portable",
+      "Explicit date format per source file rather than letting the parser guess",
+      "Input node is tagged so it runs in the existing configuration pass, before real compute",
+      "Output node takes the published frame, so it validates what was actually written",
+      "Returns a small report object into the catalog so a run's verdict is addressable"
+    ]
+  },
+  vinit: {
+    name: "__init__.py",
+    altName: "src/f1/validation/__init__.py",
+    category: "New · package surface",
+    kind: "new",
+    summary: "Makes the folder a package and names the two governing documents in its header, so anyone opening the module learns what it is specified against before they read a line of code.",
+    role: "Small, but deliberate. The header is the first thing a maintainer reads, and it points at the validation framework and the release quality plan rather than leaving them to be discovered. Everything else is re-exports so that callers import from the package rather than reaching into individual modules.",
+    talking: [
+      "Header names the specification documents — provenance at the top of the tree",
+      "Re-exports give a stable import surface as internals move",
+      "Keeping it thin avoids import-time side effects in a package the pipeline loads early"
+    ]
+  },
+  params: {
+    name: "parameters_validation.yml",
+    altName: "conf/<env>/parameters_validation.yml",
+    category: "New · configuration",
+    kind: "new",
+    summary: "Per-check severity and every threshold. No number anywhere in the validation code — bands, tolerances, lookback windows and ratios all resolve from here.",
+    role: "This is the file that lets the business own the thresholds without touching Python. It also carries the strict flag, resolved from a runtime parameter so one environment can run permissively while another blocks. Keeping every number here means a threshold change is a configuration review rather than a code review, and the git history of this one file is the history of what the team decided was acceptable.",
+    talking: [
+      "Thresholds in configuration, never in code — a specification requirement, not a preference",
+      "Strict flag resolved from a runtime parameter, so Dev and Prod differ by input not by build",
+      "Severity map per check, which is how a new check gets promoted from warning to error",
+      "The file's git history doubles as the decision record for every tolerance"
+    ]
+  },
+  tests: {
+    name: "test_validation.py",
+    altName: "src/tests/test_validation.py · 57 tests",
+    category: "New · regression suite",
+    kind: "new",
+    summary: "Fifty-seven unit tests. Every failing case is constructed from the real incident that motivated the check, so a future regression surfaces as the original defect rather than as an abstract assertion error.",
+    role: "The passing cases are cheap; the failing cases are the asset. A test that feeds in a final month at six percent of normal volume is a permanent record of what went wrong in October, written in a form that executes. Coverage sits above ninety percent on the check logic and the runner. The pipeline wiring is deliberately thinner-covered, because exercising it properly needs real datasets rather than mocks that would only assert the mocks.",
+    talking: [
+      "Each failing case is lifted from a real incident, not invented",
+      "93% coverage on the check logic, 98% on the runner",
+      "Wiring coverage left low on purpose — mocking Kedro datasets tests the mocks",
+      "Runs in seconds with no cluster, database or cloud credential",
+      "Open gap: the build workflow has no test step, so nothing runs these automatically yet"
+    ]
+  },
+  settings: {
+    name: "settings.py",
+    altName: "src/f1/settings.py · Fix 1",
+    category: "Modified · behaviour change",
+    kind: "mod",
+    summary: "Two comment characters deleted. The project hooks are now registered — they never had been, which means the schema-reconciliation hook had never executed in any environment.",
+    role: "The hook that keeps the reporting tables in step with their declared schema is written, has its own unit tests, and was inert. Both lines registering it were commented out. A production run had previously failed on a missing column and a stale schema file was blamed; the better explanation is that the code which would have added the column was never called. This is the only edit on the branch that changes behaviour at the framework level, which is why it carries the most review attention.",
+    talking: [
+      "A written, tested, unregistered hook is worse than no hook — it reads as coverage that is not there",
+      "The failure it would have prevented was diagnosed as a data problem for weeks",
+      "Verified additive-only before enabling: compares column names, never types, only ever adds",
+      "No-op when the database connection string is unset, so local runs are unaffected",
+      "Open question for review: was it disabled deliberately on an earlier branch?"
+    ]
+  },
+  hooks: {
+    name: "hooks.py",
+    altName: "src/f1/settings.py registers it · unchanged",
+    category: "Unchanged · context",
+    kind: "unc",
+    summary: "Not touched by this work. Shown because it is the reason Fix 1 matters: the hook was always here, complete and unit-tested, and simply never ran.",
+    role: "Its before-pipeline-run handler compares each reporting table against the declared schema and issues an additive alter for any missing column. Reading it is what made the fix safe to apply — the comparison is on column names only, it never inspects or changes a type, and it can only add. Nothing about it needed changing; it needed registering.",
+    talking: [
+      "Complete, tested, and inert for an unknown length of time",
+      "Additive-only by construction, which is what made enabling it low-risk",
+      "A reminder to check whether existing safeguards actually execute before writing new ones"
+    ]
+  },
+  dbutils: {
+    name: "db_utils.py",
+    altName: "src/f1/db_utils.py · Fix 4",
+    category: "Modified · observability",
+    kind: "mod",
+    summary: "One logging call raised from debug to info, so the schema check leaves evidence at the default log level instead of only when someone turns debug on.",
+    role: "The smallest edit on the branch and the one with the best ratio of effort to value. With the hook now running, a reviewer in any environment should be able to open the run log and see that the reporting tables were checked and found complete. At debug level that line never appears in practice, so the check would run and leave no trace — which is how a safeguard becomes invisible and then forgotten.",
+    talking: [
+      "A safeguard that leaves no log entry is indistinguishable from one that is switched off",
+      "Default log level is the only level that matters in an unattended environment",
+      "Paired with Fix 1: enabling the hook is only useful if its result is observable"
+    ]
+  },
+  catalog: {
+    name: "catalog.yml",
+    altName: "conf/<env>/catalog.yml",
+    category: "Modified · wiring",
+    kind: "mod",
+    summary: "Two in-memory dataset entries added so the framework has somewhere to put the result of each validation node. Nothing in the existing catalog changes.",
+    role: "Purely declarative. The two new names give the input and output validation nodes an addressable output, which is what lets them participate in the pipeline graph rather than being side-effecting functions bolted on. No existing path, dataset or loader is modified — the file grows by two entries and is otherwise byte-identical, which is the point when the catalog is the single source of truth for 118 datasets.",
+    talking: [
+      "Two additions, zero modifications — a reviewable diff in a file nobody wants churned",
+      "In-memory datasets, so no new storage, no new IAM, no new lifecycle policy",
+      "Gives each validation node a real output so it is a graph node, not a side effect"
+    ]
+  },
+  pipeline: {
+    name: "pipeline.py",
+    altName: "…/data_engineering/pipeline.py",
+    category: "Modified · wiring",
+    kind: "mod",
+    summary: "One import and two nodes. This is the file that actually puts the checks into the run — everything else is inert without it.",
+    role: "The input node is tagged so it joins the existing configuration pass, which already runs before every full run. That placement is the whole economic argument for the layer: catching a short input file costs seconds, and catching it an hour later costs a Fargate run and a day of investigation. The output node takes the published frame, so it validates exactly what was written rather than an intermediate.",
+    talking: [
+      "Two nodes added to a graph — no existing node, order or dependency changed",
+      "Tagging the input node into the configuration pass is what makes the checks nearly free",
+      "Side effect worth declaring: that pass now reads source files it previously did not touch",
+      "Output node consumes the published frame, so it checks the artefact, not a precursor"
+    ]
+  },
+  denodes: {
+    name: "nodes.py",
+    altName: "…/data_engineering/nodes.py · 4,308 lines · Fix 2",
+    category: "Modified · wrong output",
+    kind: "mod",
+    summary: "One line changed in a file of four thousand. Competitor market share was dividing by a market size that had already been superseded, overstating every competitor share in every forecast month.",
+    role: "Market size is recomputed roughly thirty lines earlier in the same function. From that point the original variable holds a pre-adjustment figure while the published unit columns are consistent with the adjusted one. The in-house brand's share used the adjusted frame and stayed correct; the competitor loop divided by the stale one. The shares ran over by roughly twelve to seventeen percent depending on the month — and by an identical factor across all competitor brands within any one month, which is the signature that located the cause to a single line.",
+    talking: [
+      "Found by writing a consistency check, not by anyone reporting a wrong number",
+      "The identical factor across brands is what distinguished a formula bug from bad data",
+      "Unit columns and market size are untouched, so the published forecast itself does not move",
+      "Acceptance test is arithmetic: share must equal units divided by market size, per brand per month",
+      "One line, in a file where overwriting the whole thing could silently undo other work — hence a verified in-place patch"
+    ]
+  },
+  promo: {
+    name: "extract_promo.py",
+    altName: "…/data_extraction/extract_promo.py · Fix 3",
+    category: "Modified · unreachable check",
+    kind: "mod",
+    summary: "A date-range check moved to run before the step that extends every file to the forecast horizon — which is the only point at which it can still see a mismatch.",
+    role: "Three promotional spend files are summed together, so a month present in two of three produces exactly one null: enough to fail a run an hour in, small enough to pass inspection. A guard for precisely that condition existed, and ran after the extension step. Because extension pushes every file to the same horizon, all three ended on the same date by construction and the guard could never fire. Reading it also surfaced that the extension rule itself — carry the same calendar month from the most recent year available, then forward-fill — is a business assumption applied silently on every run that nobody on the team knew was there.",
+    talking: [
+      "A check in the wrong place reads as coverage while providing none",
+      "Order of operations made the condition structurally unreachable, not merely unlikely",
+      "The silent extension rule is now logged with a month count — a handful is the planning horizon, four years means a stale source",
+      "Side finding: a row added by hand to three files for the monthly run was almost certainly redundant",
+      "Left the original guard in place for one cycle rather than deleting it on the same change"
+    ]
+  }
+};
+
+/* =====================================================================
+   REPOSITORY DIAGRAM
+   ===================================================================== */
+const NEW_FILL = "rgba(43,163,156,0.14)", NEW_STROKE = "#1E6F6F", NEW_TEXT = "#6BC7C0";
+const MOD_FILL = "rgba(232,123,51,0.14)", MOD_STROKE = "#B85A1E", MOD_TEXT = "#F4A66B";
+const UNC_FILL = "#182B43", UNC_STROKE = "#4C5D75", UNC_TEXT = "#7889A0";
+
+function Node({ id, x, y, w, h, label, sub, tag, kind, onClick }) {
+  const fill = kind === "new" ? NEW_FILL : kind === "mod" ? MOD_FILL : UNC_FILL;
+  const stroke = kind === "new" ? NEW_STROKE : kind === "mod" ? MOD_STROKE : UNC_STROKE;
+  const text = kind === "new" ? NEW_TEXT : kind === "mod" ? MOD_TEXT : UNC_TEXT;
+  return (
+    <g className="node-group" onClick={() => onClick(id)}>
+      <rect className="nbox" x={x} y={y} width={w} height={h} rx="5" fill={fill} stroke={stroke} />
+      <text className="svg-th" x={x + 13} y={y + 19} fill={kind === "unc" ? UNC_TEXT : "#F5F1E8"}>{label}</text>
+      <text className="svg-ts" x={x + 13} y={y + 34} fill="#7889A0">{sub}</text>
+      {tag && (
+        <>
+          <rect x={x + w - 64} y={y + 9} width="54" height="15" rx="2.5" fill={fill} stroke={stroke} />
+          <text className="svg-tag" x={x + w - 37} y={y + 19.5} fill={text} textAnchor="middle">{tag}</text>
+        </>
+      )}
+    </g>
+  );
+}
+
+function RepoDiagram({ onFileClick }) {
+  return (
+    <svg viewBox="0 0 1160 560" width="1160" role="img" aria-label="Repository tree showing the twelve changed files">
+      <defs>
+        <marker id="ah" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+          <polygon points="0 0, 9 3.5, 0 7" fill="#7889A0" />
+        </marker>
+      </defs>
+
+      {/* ---- conf/<env> ---- */}
+      <text className="svg-region-label" x="24" y="38">CONF/&lt;ENV&gt;/</text>
+      <rect className="svg-container" x="24" y="46" width="300" height="124" rx="6" />
+      <Node id="catalog" x={40} y={62} w={268} h={44} label="catalog.yml" sub="two in-memory outputs added" tag="EDITED" kind="mod" onClick={onFileClick} />
+      <Node id="params" x={40} y={112} w={268} h={44} label="parameters_validation.yml" sub="every threshold and severity" tag="NEW" kind="new" onClick={onFileClick} />
+
+      {/* ---- src/tests ---- */}
+      <text className="svg-region-label" x="24" y="208">SRC/TESTS/</text>
+      <rect className="svg-container" x="24" y="216" width="300" height="74" rx="6" />
+      <Node id="tests" x={40} y={232} w={268} h={44} label="test_validation.py" sub="57 tests, one per incident" tag="NEW" kind="new" onClick={onFileClick} />
+
+      {/* ---- src/f1 ---- */}
+      <text className="svg-region-label" x="360" y="38">SRC/F1/</text>
+      <rect className="svg-container" x="360" y="46" width="330" height="184" rx="6" />
+      <Node id="settings" x={376} y={62} w={298} h={44} label="settings.py" sub="hooks registered at last" tag="FIX 1" kind="mod" onClick={onFileClick} />
+      <Node id="hooks" x={376} y={112} w={298} h={44} label="hooks.py" sub="written, tested, never ran" tag="CONTEXT" kind="unc" onClick={onFileClick} />
+      <Node id="dbutils" x={376} y={162} w={298} h={44} label="db_utils.py" sub="debug to info, so it is visible" tag="FIX 4" kind="mod" onClick={onFileClick} />
+
+      {/* registers arrow */}
+      <path className="svg-arr" d="M376 84 L348 84 L348 134 L370 134" markerEnd="url(#ah)" />
+      <text className="svg-edge-label" x="344" y="112" textAnchor="end">registers</text>
+
+      {/* ---- pipelines ---- */}
+      <text className="svg-region-label" x="726" y="38">…/PIPELINES/DATA_ENGINEERING/</text>
+      <rect className="svg-container" x="726" y="46" width="410" height="184" rx="6" />
+      <Node id="denodes" x={742} y={62} w={378} h={44} label="nodes.py" sub="4,308 lines · one line changed" tag="FIX 2" kind="mod" onClick={onFileClick} />
+      <Node id="promo" x={742} y={112} w={378} h={44} label="extract_promo.py" sub="guard moved before expansion" tag="FIX 3" kind="mod" onClick={onFileClick} />
+      <Node id="pipeline" x={742} y={162} w={378} h={44} label="pipeline.py" sub="one import, two nodes" tag="EDITED" kind="mod" onClick={onFileClick} />
+
+      {/* pipeline -> validation/nodes */}
+      <path className="svg-arr" d="M931 206 L931 318 L468 318 L468 344" markerEnd="url(#ah)" />
+      <text className="svg-edge-label" x="700" y="312" textAnchor="middle">wires the checks into the run</text>
+
+      {/* ---- validation package ---- */}
+      <text className="svg-region-label" x="1136" y="342" textAnchor="end">SRC/F1/VALIDATION/ — NEW PACKAGE</text>
+      <rect className="svg-container-solid" x="360" y="350" width="776" height="88" rx="6" />
+      <Node id="vnodes" x={378} y={372} w={180} h={44} label="nodes.py" sub="the two steps" tag="NEW" kind="new" onClick={onFileClick} />
+      <Node id="checks" x={572} y={372} w={180} h={44} label="checks.py" sub="14 checks" tag="NEW" kind="new" onClick={onFileClick} />
+      <Node id="runner" x={766} y={372} w={180} h={44} label="runner.py" sub="warn or stop" tag="NEW" kind="new" onClick={onFileClick} />
+      <Node id="vinit" x={960} y={372} w={160} h={44} label="__init__.py" sub="surface" tag="NEW" kind="new" onClick={onFileClick} />
+
+      <path className="svg-arr" d="M558 394 L566 394" markerEnd="url(#ah)" />
+      <path className="svg-arr" d="M752 394 L760 394" markerEnd="url(#ah)" />
+
+      {/* params -> runner */}
+      <path className="svg-arr" d="M40 134 L12 134 L12 516 L856 516 L856 440" markerEnd="url(#ah)" />
+      <text className="svg-edge-label" x="470" y="510" textAnchor="middle">thresholds and severity resolve at run time</text>
+
+      {/* tests -> checks */}
+      <path className="svg-arr" d="M308 254 L336 254 L336 394 L372 394" markerEnd="url(#ah)" strokeDasharray="3 3" />
+      <text className="svg-edge-label" x="332" y="338" textAnchor="end">tests</text>
+    </svg>
+  );
+}
+
+/* =====================================================================
+   DATA
+   ===================================================================== */
+const CHECKS = [
+  { n: "01", t: "Presence and shape", d: "Dataset exists, is non-empty, carries the expected columns, and numeric columns parse as numeric. Also catches a stray comma in a header read as a phantom column.", s: "spec 1.4", out: false },
+  { n: "02", t: "Date continuity", d: "Dates parse under an explicitly declared per-file format, with no gaps and no duplicates. A parse failure is an error rather than a silent blank that gets dropped later.", s: "spec 1.3", out: false },
+  { n: "03", t: "No partial final month", d: "The last month present must be a closed month. Added after a source extract arrived twice with its final month at six and nineteen percent of normal volume.", s: "new in this revision", out: false },
+  { n: "04", t: "No ragged tail", d: "Every series in the market-model set ends on the same date. One source had lagged another by two months; the run completed and produced wrong figures for both.", s: "spec PF 1.10", out: false },
+  { n: "05", t: "No nulls in range", d: "No blanks in a value column inside the file's own declared date range. A blank and a short tail need different fixes, so they are reported differently.", s: "spec 1.5", out: false },
+  { n: "06", t: "Value bounds", d: "Spend must be non-negative; the share used as a divisor must be strictly positive, because a zero there is fatal rather than merely wrong.", s: "spec 1.5", out: false },
+  { n: "07", t: "Scale sanity", d: "Each series' recent magnitude against its own history. An input entered in thousands rather than units runs cleanly and forecasts confidently. Warning severity by design.", s: "spec 1.6", out: false },
+  { n: "08", t: "Modelling dates ordered", d: "The four window dates are ordered and contiguous. An inverted or overlapping window yields an empty training set with no explicit error.", s: "spec 1.8", out: false },
+  { n: "09", t: "Flags resolved", d: "No unresolved template string reaching a feature flag. An unresolved retrain flag silently reuses whatever model files happen to be on disk.", s: "spec 1.8", out: false },
+  { n: "10", t: "Rescore prerequisites", d: "On a rescore, the models the run needs must already exist. A cold store should say so plainly rather than failing deep in the graph with a partition error.", s: "spec 1.7", out: false },
+  { n: "11", t: "Competitor configuration", d: "The configured competitor list agrees with the share columns and the source data. A mismatch crashes mid-run, or leaves an orphan column nobody notices.", s: "spec 1.4", out: false },
+  { n: "12", t: "Non-empty write", d: "An append of an empty frame succeeds and is indistinguishable from a missing table. Half a day was once spent looking in storage for files that had never been written.", s: "spec 3.1", out: true },
+  { n: "13", t: "Forecast completeness", d: "Every month of the horizon carries a value, with no nulls. A partly populated forecast reaching a dashboard is worse than a failed run — nothing on it says it is incomplete.", s: "spec 3.2", out: true },
+  { n: "14", t: "Forecast level, brand by brand", d: "The next twelve forecast months against the last twelve actual months, per brand. Every brand should land near 1.0. Per brand, because the pipeline forces brands to sum to a market total.", s: "spec 3.5", out: true }
+];
+
+const RUN_FLOW = [
+  {
+    tech: "Configuration pass · seconds, before modelling",
+    title: "Input checks 01 to 11",
+    isNew: true,
+    desc: "Reads the source files and the run configuration: shape, date continuity, partial final months, ragged tails, nulls, bounds, scale, modelling-date ordering, unresolved flags, model prerequisites, competitor configuration.",
+    note: "Placed in a pass that already ran before every full run, which is the whole economic argument. Catching a short input costs seconds; catching it an hour later costs a cluster run and a day of investigation."
+  },
+  {
+    tech: "Run starts · before the first node",
+    title: "Schema reconciliation hook — Fix 1",
+    isNew: false,
+    desc: "Compares the reporting tables against their declared schema and adds any missing column. <strong>This had never executed.</strong> The two lines registering the hook were commented out — a better explanation of a production column-missing failure than the stale schema file that was blamed for it.",
+    note: "Additive only: compares column names, never types, and can only add. A no-op when the database connection string is unset."
+  },
+  {
+    tech: "Data engineering · extract and assemble",
+    title: "Promotional date-range guard moved earlier — Fix 3",
+    isNew: false,
+    desc: "Three spend files are summed, so a month present in two of three yields exactly one null — enough to fail a run an hour in, small enough to pass inspection. The guard for that condition ran <em>after</em> the step that extends every file to the horizon, by which point all three ended on the same date by construction.",
+    note: "The condition it was written for was structurally unreachable. It now runs on the raw frames, before extension — and the extension itself is logged with a month count."
+  },
+  {
+    tech: "Post-processing · shares calculated",
+    title: "Competitor share denominator — Fix 2",
+    isNew: false,
+    desc: "Market size is recomputed partway through the function. From that point the original variable holds a stale value, and the competitor loop was still dividing by it — overstating every competitor share while the in-house brand stayed correct.",
+    note: "Roughly twelve to seventeen percent over, depending on the month, and by an identical factor across all competitor brands within any one month. That identical factor is what located the cause."
+  },
+  {
+    tech: "Output written · last node of the run",
+    title: "Output checks 12 to 14",
+    isNew: true,
+    desc: "The write carried rows · every forecast month present with no nulls · <strong>forecast level per brand against that brand's own recent actuals.</strong>",
+    note: "It has to be per brand. The pipeline forces brands to sum to a market total, so one brand far too low is cancelled by others too high — the total looks healthy while every part of it is wrong."
+  },
+  {
+    tech: "After the run · every environment",
+    title: "Independent confirmation on the published file",
+    isNew: false,
+    desc: "A standalone script applies the same forecast-level test to the published output and prints a line ready to paste into a verification record.",
+    note: "It is the only one of the two that runs from a laptop with download-only access to the production store, which is a deliberate constraint rather than an oversight."
+  }
+];
+
+const DEFECTS = [
+  {
+    kind: "Fix 1 · behaviour change",
+    title: "A hook that was written, tested, and never ran",
+    path: "src/f1/settings.py",
+    was: "# from f1.hooks import ProjectHooks\n# HOOKS = (ProjectHooks(),)",
+    now: "from f1.hooks import ProjectHooks\nHOOKS = (ProjectHooks(),)",
+    body: [
+      "The hook keeping the reporting tables in step with their declared schema is complete and has its own unit tests. Both lines registering it were commented out, so it had never executed in any environment.",
+      "A production run had failed on a missing column and a stale schema file was blamed. The better explanation: the code that would have added the column was never called."
+    ],
+    impact: "Found by tracing what a proposed new schema check would duplicate — and discovering the existing one was inert."
+  },
+  {
+    kind: "Fix 2 · wrong output",
+    title: "Every competitor share overstated by an identical factor",
+    path: "…/data_engineering/nodes.py",
+    was: 'df_comp_imu["value"] / df_market_size["value"]',
+    now: 'df_comp_imu["value"] / df_market_size_adjusted["value"]',
+    body: [
+      "Market size is recomputed about thirty lines earlier. From then on the original variable holds a pre-adjustment value while the published unit columns are consistent with the adjusted one. The in-house brand used the adjusted frame and stayed correct; the competitor loop divided by the stale one.",
+      "Shares ran over by roughly twelve to seventeen percent depending on the month — and by the <em>same</em> factor across all competitor brands within any one month. That identical factor is what narrowed the cause to a single line."
+    ],
+    impact: "The published forecast does not move. Only share columns change; every unit column and the market size are untouched."
+  },
+  {
+    kind: "Fix 3 · unreachable check",
+    title: "A validation that could not fire, and a silent assumption",
+    path: "…/data_extraction/extract_promo.py",
+    was: "expand_to_horizon(...)      # equalises all end dates\nvalidate_date_ranges(...)   # can no longer see a mismatch",
+    now: "validate_raw_date_ranges(...)   # on the raw frames\nexpand_to_horizon(...)",
+    body: [
+      "Three spend files are summed, so a month present in two of three yields one null — enough to fail a run an hour in. The guard for exactly that condition sat after the step that extends every file to the horizon, where all three end on the same date by construction.",
+      "Reading it also revealed that the extension rule — carry the same calendar month from the most recent year available, then forward-fill — is a business assumption applied silently on every run that nobody on the team knew was there."
+    ],
+    impact: "Side finding: a row added by hand to three files for the monthly run was almost certainly redundant. The pipeline had been doing it all along."
+  }
+];
+
+const DECISIONS = [
+  {
+    q: "Why ship every new check as a warning first?",
+    a: "A validation layer that blocks a run on day one, on a threshold nobody has agreed, gets switched off within a week — and then the whole layer is gone, including the checks that were right. Each check ships at warning severity, runs one full cycle so the team sees what it would have blocked, and is promoted to error only once it has earned it. <strong>Trust is the scarce resource, not coverage.</strong>"
+  },
+  {
+    q: "Why one strict flag instead of per-environment code?",
+    a: "Development runs permissively and QA and Production run strictly, but they run the <em>same build</em>. A single <code>strict</code> flag resolved from a runtime parameter promotes every warning to an error in one place. The alternative — environment branching inside the checks — means the thing you tested is not the thing you shipped."
+  },
+  {
+    q: "Why no thresholds in code at all?",
+    a: "Every band, tolerance, lookback and ratio resolves from one configuration file. A threshold is a business judgement, not an engineering one, so changing it should be a configuration review rather than a code review and a release. The git history of that one file becomes the decision record for every tolerance the team has accepted."
+  },
+  {
+    q: "Why check the output per brand rather than in total?",
+    a: "Because the pipeline forces the brands to sum to a market total. One brand far too low is cancelled out by others too high, so a check on the total passes while every component is wrong. <strong>The aggregate is the one view guaranteed to look healthy</strong> — which is exactly why it is the wrong place to look."
+  },
+  {
+    q: "Why not fix the output by detecting the bad shares?",
+    a: "A check that detects a known formula error every month is a monument to not having fixed it. Where the defect is deterministic and the cause is identified, correcting the line is the right answer and the check is unnecessary. Validation is for the problems you cannot eliminate — bad inputs, drift, operator error."
+  },
+  {
+    q: "Why leave the old, unreachable guard in place?",
+    a: "It still catches a start-date difference, it is harmless, and deleting it in the same change as moving the logic would conflate two things in one diff. It comes out after the new check has run one full cycle — <strong>removing dead code is a separate commit from fixing live code.</strong>"
+  }
+];
+
+const SHIP = [
+  { tech: "Step 1", title: "Open the pull request", desc: "Pushing the branch builds nothing. The pull request is the build trigger — it produces a per-branch image in a mutable registry and prints the promote command in its own run summary." },
+  { tech: "Step 2 · the one that gets skipped", title: "Promote to the target environment", desc: "Build produces images and deploys nothing. Select the branch as the <strong>image input</strong>, not merely in the workflow-source dropdown — those are two different things, and leaving the input empty quietly promotes the last release image instead." },
+  { tech: "Step 3", title: "Promote twice, deliberately", desc: "Once with the full run disabled, which exercises the configuration pass and proves checks 01 to 11 for about a minute of compute. Then again with the full run enabled, which produces the forecast and exercises checks 12 to 14." },
+  { tech: "Step 4", title: "Verify the image before trusting the result", desc: "Read the task definition's image reference and confirm it matches the branch build. A run against the wrong image looks exactly like a successful one — same green tick, same duration, same log shape." }
+];
+
+/* =====================================================================
+   MODAL
+   ===================================================================== */
+function FileModal({ fileId, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    if (fileId) window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fileId, onClose]);
+
+  useEffect(() => {
+    if (fileId) document.body.style.overflow = 'hidden';
+    else document.body.style.overflow = '';
+    return () => { document.body.style.overflow = ''; };
+  }, [fileId]);
+
+  const f = fileId ? FILES[fileId] : null;
+  const open = Boolean(f);
+
+  return (
+    <>
+      <div className={`modal-backdrop ${open ? 'open' : ''}`} onClick={onClose} />
+      <aside className={`modal-panel ${open ? 'open' : ''}`} aria-hidden={!open}>
+        {f && (
+          <>
+            <header className="modal-header">
+              <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
+              <div className={`modal-category ${f.kind === 'new' ? 'is-new' : ''}`}>{f.category}</div>
+              <h2 className="modal-title">
+                {f.name}
+                {f.altName && <span className="alt">{f.altName}</span>}
+              </h2>
+              <p className="modal-summary">{f.summary}</p>
+            </header>
+            <div className="modal-body">
+              <div className="modal-block">
+                <div className="modal-block-label">What it does and why</div>
+                <p>{f.role}</p>
+              </div>
+              <div className="modal-block">
+                <div className="modal-block-label">Engineering talking points</div>
+                <ul>{f.talking.map((t, i) => <li key={i}>{t}</li>)}</ul>
+              </div>
+            </div>
+          </>
+        )}
+      </aside>
+    </>
+  );
+}
+
+/* =====================================================================
+   APP
+   ===================================================================== */
+function App() {
+  const [selected, setSelected] = useState(null);
+  const onFileClick = useCallback((id) => setSelected(id), []);
+  const onClose = useCallback(() => setSelected(null), []);
+
+  return (
+    <>
+      <header className="site-head">
+        <div className="wrap site-head-row">
+          <a href="#" className="brand">
+            John Carlo Cueva<span>PIPELINE DATA VALIDATION</span>
+          </a>
+          <nav className="site-nav">
+            <a href="#repository">Repository</a>
+            <a href="#checks">The checks</a>
+            <a href="#run">Run order</a>
+            <a href="#defects">Defects</a>
+            <a href="#decisions">Decisions</a>
+            <a href="#shipping">Shipping</a>
+          </nav>
+        </div>
+      </header>
+
+      <main>
+        <section className="hero">
+          <div className="wrap">
+            <div className="kicker"><span className="dot"></span>Pharmaceutical · Kedro on AWS Fargate · Demand Forecasting</div>
+            <h1>Validating a forecasting pipeline <span className="serif">that never failed.</span></h1>
+            <p className="hero-lede">
+              A monthly demand forecast ran clean for months and published numbers the business later found to be wrong. No crash, no error, no alert — the slowest possible way to discover a defect. This is the fourteen-check validation layer built to move that discovery earlier, placed inside a configuration pass that already ran so it costs seconds rather than a cluster run, with every threshold in configuration and every test case lifted from a real incident. Writing it surfaced three latent defects nobody had been looking for, including a safeguard that had been written, unit-tested, and never once executed.
+            </p>
+            <div className="byline">
+              <strong>John Carlo Cueva</strong>
+              <span className="sep">·</span>
+              <span>AWS Architect / Sr. Manager, Generative AI</span>
+              <span className="sep">·</span>
+              <span className="mono">PHARMACEUTICAL · 2026</span>
+              <span className="tag">In review</span>
+            </div>
+
+            <div className="stat-band">
+              <div className="stat"><div className="stat-number">14</div><div className="stat-label">Validation checks</div></div>
+              <div className="stat"><div className="stat-number">3</div><div className="stat-label">Latent defects found</div></div>
+              <div className="stat"><div className="stat-number">57</div><div className="stat-label">Unit tests</div></div>
+              <div className="stat"><div className="stat-number">12</div><div className="stat-label">Files touched</div></div>
+              <div className="stat"><div className="stat-number">0</div><div className="stat-label">Modelling lines changed</div></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="repository">
+          <div className="wrap">
+            <div className="section-label">
+              <span className="section-num">01</span>
+              <h2 className="section-title">The repository</h2>
+              <span className="section-sub">click any file</span>
+            </div>
+
+            <p className="section-intro">
+              Twelve files: six new, six edited. The validation logic lands as a self-contained package, and the six edits are deliberately small — one of them is a single line in a file of four thousand. <code>hooks.py</code> is unchanged and shown anyway, because it is the reason the first defect is legible at all.
+            </p>
+
+            <div className="hint">
+              <strong>Interactive</strong>
+              <span>Click any file for what it does, why it is shaped that way, and the engineering trade-offs behind it.</span>
+            </div>
+
+            <div className="legend">
+              <span className="lg new">New — 6 files</span>
+              <span className="lg mod">Modified — 6 files</span>
+              <span className="lg unc">Unchanged — context</span>
+            </div>
+
+            <div className="diagram-frame">
+              <div className="diagram-label">
+                <span>BRANCH CONTENTS</span>
+                <span className="label-title">Where each file sits, and what calls what</span>
+              </div>
+              <div className="svg-wrap">
+                <RepoDiagram onFileClick={onFileClick} />
+              </div>
+            </div>
+
+            <div className="callout">
+              <strong>No modelling code was touched.</strong> Not a model, not a catalog path, not an existing test. The checks only read data — they never transform it — so the only way one of them can change an outcome is by stopping a run it judges invalid.
+            </div>
+          </div>
+        </section>
+
+        <section id="checks">
+          <div className="wrap">
+            <div className="section-label">
+              <span className="section-num">02</span>
+              <h2 className="section-title">Fourteen checks</h2>
+              <span className="section-sub">eleven on input · three on output</span>
+            </div>
+
+            <p className="section-intro">
+              Each is a pure function with no I/O inside it, which is what makes fifty-seven unit tests possible without a cluster, a database or a cloud credential. Every one cites the specification item it implements and the incident that justified writing it.
+            </p>
+
+            <div className="checks-grid">
+              {CHECKS.map((c) => (
+                <div key={c.n} className={`check-card ${c.out ? 'out' : ''}`}>
+                  <div className="ck-num">{c.n}</div>
+                  <div className="ck-body">
+                    <div className="ck-title">{c.t}</div>
+                    <div className="ck-desc">{c.d}</div>
+                    <div className="ck-spec">{c.out ? 'Output · ' : 'Input · '}<b>{c.s}</b></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="run">
+          <div className="wrap">
+            <div className="section-label">
+              <span className="section-num">03</span>
+              <h2 className="section-title">When each thing fires</h2>
+              <span className="section-sub">one run, start to finish</span>
+            </div>
+
+            <p className="section-intro">
+              Reading this top to bottom shows the two things a table cannot: the input checks happen before any real compute is spent, and the three defects sat in three unrelated parts of the run.
+            </p>
+
+            <div className="pipeline">
+              {RUN_FLOW.map((s, i) => (
+                <div key={i} className={`pipeline-step ${s.isNew ? 'is-new' : ''}`}>
+                  <div className="pipeline-num">{String(i + 1).padStart(2, '0')}</div>
+                  <div className="pipeline-body">
+                    <div className="pipeline-tech">{s.tech}</div>
+                    <div className="pipeline-title">{s.title}</div>
+                    <div className="pipeline-desc" dangerouslySetInnerHTML={{ __html: s.desc }} />
+                    <div className="pipeline-note" dangerouslySetInnerHTML={{ __html: s.note }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="callout warn">
+              <strong>A failing check does not stop the run</strong> unless its severity is set to error, or the strict flag is on. Development runs permissive, QA and Production run strict — once the output band has been ratified by the business rather than chosen by an engineer.
+            </div>
+          </div>
+        </section>
+
+        <section id="defects">
+          <div className="wrap">
+            <div className="section-label">
+              <span className="section-num">04</span>
+              <h2 className="section-title">Three defects found on the way in</h2>
+              <span className="section-sub">none of them were the task</span>
+            </div>
+
+            <p className="section-intro">
+              Each surfaced while writing a check and reading the code that check was supposed to protect. That is the strongest argument for writing validation against a system everyone believes is working: the act of specifying what correct looks like is what exposes where it is not.
+            </p>
+
+            <div className="defects-grid">
+              {DEFECTS.map((d, i) => (
+                <div key={i} className="defect">
+                  <div className="defect-head">
+                    <div className="defect-kind">{d.kind}</div>
+                    <h3 className="defect-title">{d.title}</h3>
+                    <div className="defect-path">{d.path}</div>
+                  </div>
+                  <div className="defect-body">
+                    <div className="ba">
+                      <div className="was">{d.was}</div>
+                      <div className="now">{d.now}</div>
+                    </div>
+                    {d.body.map((p, j) => <p key={j} dangerouslySetInnerHTML={{ __html: p }} />)}
+                    <div className="defect-impact"><b>Note</b>{d.impact}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="decisions">
+          <div className="wrap">
+            <div className="section-label">
+              <span className="section-num">05</span>
+              <h2 className="section-title">Decisions and trade-offs</h2>
+              <span className="section-sub">why it is shaped this way</span>
+            </div>
+
+            <div className="decisions-grid">
+              {DECISIONS.map((d, i) => (
+                <div key={i} className="decision-card">
+                  <div className="decision-q">{d.q}</div>
+                  <div className="decision-a" dangerouslySetInnerHTML={{ __html: d.a }} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="shipping">
+          <div className="wrap">
+            <div className="section-label">
+              <span className="section-num">06</span>
+              <h2 className="section-title">Getting it into an environment</h2>
+              <span className="section-sub">build ≠ deploy</span>
+            </div>
+
+            <p className="section-intro">
+              Nothing auto-deploys. One workflow produces container images and deploys none of them; a separate workflow registers a task-definition revision against a chosen image, one environment per run. Conflating the two is how a branch gets "tested" against the previous release image, with a green run to prove it.
+            </p>
+
+            <div className="pipeline">
+              {SHIP.map((s, i) => (
+                <div key={i} className="pipeline-step">
+                  <div className="pipeline-num">{String(i + 1).padStart(2, '0')}</div>
+                  <div className="pipeline-body">
+                    <div className="pipeline-tech">{s.tech}</div>
+                    <div className="pipeline-title">{s.title}</div>
+                    <div className="pipeline-desc" dangerouslySetInnerHTML={{ __html: s.desc }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="callout warn">
+              <strong>The branch image tag is mutable.</strong> Each new commit re-pushes it, so an earlier promote goes stale silently, and a task-definition revision records a tag rather than an immutable digest. Acceptable in Development — it means a Development revision is not an audit record, and the commit has to be recorded alongside the result. Production promotes immutable, digest-pinned release images only.
+            </div>
+
+            <div className="callout">
+              <strong>Known gap, stated rather than hidden.</strong> The build workflow has no test step, so the fifty-seven tests do not run in continuous integration. Adding the file does not close the "regression tests in CI" commitment — something has to execute them. Raised as separate work rather than claimed as done.
+            </div>
+          </div>
+        </section>
+
+        <section id="about">
+          <div className="wrap">
+            <div className="section-label">
+              <span className="section-num">07</span>
+              <h2 className="section-title">What this was</h2>
+              <span className="section-sub">scope and approach</span>
+            </div>
+
+            <div className="about-grid">
+              <div className="about-body">
+                <p>
+                  A monthly pharmaceutical demand forecast built on Kedro, running as a containerised task on AWS Fargate, writing to an in-memory analytics database and on to business intelligence dashboards. The forecast drives commercial planning, so a wrong number that looks right is more expensive than a run that fails outright.
+                </p>
+                <p>
+                  The work was specified against an internal validation framework and a release quality plan, and deliberately scoped to add detection without changing behaviour — with three exceptions, each of which is a defect correction argued on its own merits rather than bundled in.
+                </p>
+                <p>
+                  <strong>The part worth generalising</strong> is not the fourteen checks. It is that a pipeline reporting success is making a much weaker claim than most teams hear. "The run completed" and "the answer is right" are different assertions, and only one of them was being tested.
+                </p>
+              </div>
+              <div>
+                <div className="about-list">
+                  <h4>Principles applied</h4>
+                  <ul>
+                    <li>One pure function per check, no I/O inside</li>
+                    <li>Thresholds in configuration, never in code</li>
+                    <li>Ship as warnings, promote after one cycle</li>
+                    <li>Every message names file, problem and fix</li>
+                    <li>Every test case lifted from a real incident</li>
+                    <li>Correct a deterministic defect; do not monitor it</li>
+                  </ul>
+                </div>
+                <div className="about-list">
+                  <h4>Honest remainder</h4>
+                  <ul>
+                    <li>Tests exist but nothing runs them in CI</li>
+                    <li>Model-freshness check proposed, not built</li>
+                    <li>Accuracy history collected for months, never read</li>
+                    <li>No recovery path for an overwritten model</li>
+                    <li>One date-format assumption still unconfirmed</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="stack">
+          <div className="wrap">
+            <div className="section-label">
+              <span className="section-num">08</span>
+              <h2 className="section-title">Stack</h2>
+            </div>
+            <div className="tbl-scroll">
+              <table className="stack-table">
+                <tbody>
+                  <tr><td>Orchestration</td><td><strong>Kedro</strong> — node graph, data catalog, environment-scoped configuration, hooks</td></tr>
+                  <tr><td>Compute</td><td><strong>AWS Fargate</strong> — containerised task launched per run; configuration pass and full run share one image</td></tr>
+                  <tr><td>Storage</td><td><strong>Amazon S3</strong> — layered data directories from raw through to reporting; model artefacts persisted between runs</td></tr>
+                  <tr><td>Registry &amp; deploy</td><td><strong>Amazon ECR</strong> with separate mutable branch and immutable release repositories · <strong>Amazon ECS</strong> task-definition revisions</td></tr>
+                  <tr><td>CI / CD</td><td><strong>GitHub Actions</strong> on self-hosted runners — build and promote as deliberately separate workflows, each environment gated by required reviewers</td></tr>
+                  <tr><td>Reporting</td><td>In-memory analytics database, schema reconciled at run start by a framework hook · business intelligence dashboards downstream</td></tr>
+                  <tr><td>Validation</td><td>Pure-function checks with <code>pytest</code> · thresholds in YAML · severity and a strict flag resolved from runtime parameters</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <div className="wrap foot-grid">
+          <div>
+            <div className="foot-brand">John Carlo Cueva</div>
+            <p>AWS Architect / Sr. Manager, Generative AI</p>
+          </div>
+          <p className="mono">PIPELINE DATA VALIDATION · 2026 · CLIENT DETAIL AND INFRASTRUCTURE IDENTIFIERS OMITTED</p>
+        </div>
+      </footer>
+
+      <FileModal fileId={selected} onClose={onClose} />
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
